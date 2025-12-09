@@ -9,14 +9,11 @@ from torchvision import models, transforms
 st.set_page_config(page_title="Fish Species Classifier", page_icon="🐟", layout="centered")
 
 MODEL_PATH = "fish_resnet50_pretrained_ft.pth"
-
-# 🔁 এখানে তোমার HuggingFace direct link বসাও:
 MODEL_URL = "https://huggingface.co/riad300/fish-resnet50-weights/resolve/main/fish_resnet50_pretrained_ft.pth"
 
 def download_model_if_needed():
     if os.path.exists(MODEL_PATH):
         return
-
     st.info("Model downloading... (first run only)")
     try:
         urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
@@ -28,7 +25,6 @@ def download_model_if_needed():
 @st.cache_resource
 def load_artifacts():
     download_model_if_needed()
-
     ckpt = torch.load(MODEL_PATH, map_location="cpu")
     class_names = ckpt["class_names"]
 
@@ -48,7 +44,6 @@ def load_artifacts():
 def predict_topk(pil_img, k=3):
     model, class_names, tfm = load_artifacts()
     x = tfm(pil_img).unsqueeze(0)
-
     with torch.no_grad():
         logits = model(x)
         probs = torch.softmax(logits, dim=1)[0]
@@ -67,7 +62,6 @@ if uploaded:
     if st.button("Predict"):
         preds = predict_topk(img, k=3)
         best_label, best_conf = preds[0]
-
         st.success(f"Prediction: {best_label}")
         st.info(f"Confidence: {best_conf*100:.2f}%")
 
