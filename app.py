@@ -1,16 +1,18 @@
-import gradio as gr
+import streamlit as st
 from PIL import Image
 
-def predict(img):
-    # TODO: তোমার repo এর model load + inference এখানে বসবে
-    return "Prediction will appear here"
+st.set_page_config(page_title="Fish Species Classifier", page_icon="🐟", layout="centered")
 
-demo = gr.Interface(
-    fn=predict,
-    inputs=gr.Image(type="pil", label="Upload Fish Image"),
-    outputs=gr.Textbox(label="Result"),
-    title="🐟 Fish Species Classifier",
-    description="Upload a fish image to get predicted species."
-)
+st.title("🐟 Fish Species Detection & Classification")
+st.write("Upload a fish image and get the predicted species.")
 
-demo.launch()
+uploaded = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+
+if uploaded:
+    img = Image.open(uploaded).convert("RGB")
+    st.image(img, caption="Uploaded image", use_container_width=True)
+
+    if st.button("Predict"):
+        # TODO: এখানে তোমার repo এর model inference বসবে
+        st.success("Prediction: (connect model)")
+        st.info("Confidence: (connect model)")
