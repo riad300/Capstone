@@ -16,3 +16,5 @@ if uploaded:
         # TODO: এখানে তোমার repo এর model inference বসবে
         st.success("Prediction: (connect model)")
         st.info("Confidence: (connect model)")
+else:
+    st.caption("Tip: clear fish image দিলে accuracy ভালো হয়.")
