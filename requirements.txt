@@ -1,4 +1,4 @@
-gradio
+streamlit
 pillow
 numpy
 opencv-python
