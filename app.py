@@ -6,9 +6,11 @@ from torchvision import models, transforms
 
 st.set_page_config(page_title="Fish Species Classifier", page_icon="🐟", layout="centered")
 
+MODEL_PATH = "fish_resnet50_pretrained_ft.pth"
+
 @st.cache_resource
-def load_model():
-    ckpt = torch.load("fish_resnet50_pretrained_ft.pth", map_location="cpu")
+def load_artifacts():
+    ckpt = torch.load(MODEL_PATH, map_location="cpu")
     class_names = ckpt["class_names"]
 
     model = models.resnet50(weights=None)
@@ -24,29 +26,44 @@ def load_model():
     ])
     return model, class_names, tfm
 
-def predict(pil_img):
-    model, class_names, tfm = load_model()
-    x = tfm(pil_img).unsqueeze(0)
+def predict_topk(pil_img, k=3):
+    model, class_names, tfm = load_artifacts()
+    x = tfm(pil_img).unsqueeze(0)  # (1,3,224,224)
+
     with torch.no_grad():
         logits = model(x)
         probs = torch.softmax(logits, dim=1)[0]
-        conf, idx = torch.max(probs, dim=0)
-    return class_names[idx.item()], float(conf.item())
+
+    top_probs, top_idx = torch.topk(probs, k=min(k, probs.numel()))
+    results = []
+    for p, i in zip(top_probs.tolist(), top_idx.tolist()):
+        results.append((class_names[i], float(p)))
+    return results
 
 st.title("🐟 Fish Species Detection & Classification")
-st.write("Upload a fish image and get the predicted species.")
+st.write("Upload a fish image and get the predicted species (Top-3).")
 
 uploaded = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+
 if uploaded:
     img = Image.open(uploaded).convert("RGB")
     st.image(img, caption="Uploaded image", use_container_width=True)
 
     if st.button("Predict"):
         try:
-            label, conf = predict(img)
-            st.success(f"Prediction: {label}")
-            st.info(f"Confidence: {conf*100:.2f}%")
+            preds = predict_topk(img, k=3)
+            best_label, best_conf = preds[0]
+
+            st.success(f"Prediction: {best_label}")
+            st.info(f"Confidence: {best_conf*100:.2f}%")
+
+            st.subheader("Top-3")
+            for label, conf in preds:
+                st.write(f"- **{label}** — {conf*100:.2f}%")
+
         except FileNotFoundError:
-            st.error("Model file 'fish_resnet50_pretrained_ft.pth' repo root এ নেই। আপলোড করো।")
+            st.error(f"Model file not found: `{MODEL_PATH}` (repo root এ দাও)")
         except Exception as e:
             st.error(f"Error: {e}")
+else:
+    st.caption("Tip: পরিষ্কার মাছের ছবি দিলে accuracy ভালো হয়।")
