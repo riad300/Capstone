@@ -9,19 +9,12 @@ import torch
 import torch.nn as nn
 from torchvision import models, transforms
 
-# ----------------------------
-# CONFIG
-# ----------------------------
 st.set_page_config(page_title="Fish Species AI", page_icon="🐟", layout="wide")
 
 MODEL_PATH = "fish_full_resnet50_classifier.pth"
 MODEL_URL  = "https://huggingface.co/riad300/fish-resnet50-weights/resolve/main/fish_full_resnet50_classifier.pth"
-
 DB_PATH = "saved_predictions.json"
 
-# ----------------------------
-# STYLES (Top bar look)
-# ----------------------------
 st.markdown("""
 <style>
 .block-container {max-width: 1180px; padding-top: 1.2rem;}
@@ -50,14 +43,11 @@ st.markdown("""
 <div class="topbar">
   <div class="brand">
     <h2>🐟 Fish Species AI</h2>
-    <span>Professional demo • Upload → Predict → Save</span>
+    <span>Upload → Predict → Save</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ----------------------------
-# Helpers: DB
-# ----------------------------
 def load_db():
     if not os.path.exists(DB_PATH):
         return []
@@ -73,9 +63,6 @@ def save_record(record):
     with open(DB_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ----------------------------
-# Helpers: Model
-# ----------------------------
 def download_model_if_needed():
     if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) > 10_000_000:
         return
@@ -94,7 +81,6 @@ def load_artifacts():
     class_names = ckpt["class_names"]
     state = ckpt["model_state"]
 
-    # DataParallel prefix fix
     if isinstance(state, dict) and len(state) > 0:
         fk = next(iter(state.keys()))
         if fk.startswith("module."):
@@ -123,10 +109,9 @@ def predict_topk(pil_img, k=3):
     top_probs, top_idx = torch.topk(probs, k=min(k, probs.numel()))
     return [(class_names[i], float(p)) for p, i in zip(top_probs.tolist(), top_idx.tolist())]
 
-# ----------------------------
-# Tabs (Home bar style navigation)
-# ----------------------------
-tab_home, tab_predict, tab_history, tab_versions = st.tabs(["🏠 Home", "📤 Upload & Predict", "📜 History", "🧾 Versions"])
+tab_home, tab_predict, tab_history, tab_versions = st.tabs(
+    ["🏠 Home", "📤 Upload & Predict", "📜 History", "🧾 Versions"]
+)
 
 with tab_home:
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -134,8 +119,6 @@ with tab_home:
     st.write("Upload a fish image and the model predicts the species with confidence.")
     st.write("You can also save predictions and view them in History.")
     st.markdown("</div>", unsafe_allow_html=True)
-
-    st.write("")
     st.info("Go to **📤 Upload & Predict** tab to upload an image and run the model.")
 
 with tab_predict:
@@ -180,7 +163,6 @@ with tab_predict:
             for label, conf in preds:
                 st.write(f"- **{label}** — {conf*100:.2f}%")
 
-            # store latest prediction in session for saving
             st.session_state["last_pred"] = {
                 "ts": int(time.time()),
                 "filename": uploaded.name,
@@ -225,8 +207,7 @@ with tab_versions:
     st.subheader("Versions / Changelog")
     st.markdown("""
 - **v1.0.0**
-  - Top bar style UI
-  - Tabs navigation (Home / Upload & Predict / History / Versions)
-  - HuggingFace model auto-download
-  - Save predictions to History
+  - Top bar UI + Tabs navigation
+  - HuggingFace full model auto-download
+  - Upload → Predict → Save → History
 """)
