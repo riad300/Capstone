@@ -1,7 +1,4 @@
-import os
-import json
-import time
-import urllib.request
+import os, json, time, urllib.request
 import streamlit as st
 from PIL import Image
 
@@ -18,23 +15,14 @@ DB_PATH = "saved_predictions.json"
 st.markdown("""
 <style>
 .block-container {max-width: 1180px; padding-top: 1.2rem;}
-.topbar {
-  position: sticky; top: 0; z-index: 999;
-  padding: 14px 18px;
-  border-radius: 18px;
-  background: rgba(17,24,39,0.75);
-  border: 1px solid rgba(255,255,255,0.08);
-  backdrop-filter: blur(10px);
-  margin-bottom: 18px;
-}
+.topbar {position: sticky; top: 0; z-index: 999; padding: 14px 18px; border-radius: 18px;
+  background: rgba(17,24,39,0.75); border: 1px solid rgba(255,255,255,0.08);
+  backdrop-filter: blur(10px); margin-bottom: 18px;}
 .brand {display:flex; align-items:center; gap:12px;}
 .brand h2 {margin:0; font-size: 24px; letter-spacing:-0.4px;}
 .brand span {opacity:0.75; font-size: 13px;}
-.card {
-  padding: 18px; border-radius: 18px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
-}
+.card {padding: 18px; border-radius: 18px; background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);}
 .small {opacity:0.78}
 </style>
 """, unsafe_allow_html=True)
@@ -48,6 +36,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# ---------- DB ----------
 def load_db():
     if not os.path.exists(DB_PATH):
         return []
@@ -63,6 +52,7 @@ def save_record(record):
     with open(DB_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+# ---------- Model download ----------
 def download_model_if_needed():
     if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) > 10_000_000:
         return
@@ -75,12 +65,13 @@ def download_model_if_needed():
         st.stop()
 
 @st.cache_resource
-def load_artifacts():
+def load_model():
     download_model_if_needed()
     ckpt = torch.load(MODEL_PATH, map_location="cpu")
     class_names = ckpt["class_names"]
     state = ckpt["model_state"]
 
+    # DataParallel fix
     if isinstance(state, dict) and len(state) > 0:
         fk = next(iter(state.keys()))
         if fk.startswith("module."):
@@ -101,52 +92,49 @@ def load_artifacts():
     return model, class_names, tfm
 
 def predict_topk(pil_img, k=3):
-    model, class_names, tfm = load_artifacts()
+    model, class_names, tfm = load_model()
     x = tfm(pil_img).unsqueeze(0)
     with torch.no_grad():
         logits = model(x)[0]
         probs = torch.softmax(logits, dim=0)
+
     top_probs, top_idx = torch.topk(probs, k=min(k, probs.numel()))
     return [(class_names[i], float(p)) for p, i in zip(top_probs.tolist(), top_idx.tolist())]
 
+# ---------- UI ----------
 tab_home, tab_predict, tab_history, tab_versions = st.tabs(
     ["🏠 Home", "📤 Upload & Predict", "📜 History", "🧾 Versions"]
 )
 
 with tab_home:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("What this website does")
-    st.write("Upload a fish image and the model predicts the species with confidence.")
-    st.write("You can also save predictions and view them in History.")
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.info("Go to **📤 Upload & Predict** tab to upload an image and run the model.")
+    with st.container(border=True):
+        st.subheader("What this website does")
+        st.write("Upload a fish image and the model predicts the species with confidence.")
+        st.write("You can also save predictions and view them in History.")
+    st.info("Go to **📤 Upload & Predict** tab.")
 
 with tab_predict:
     left, right = st.columns([1.05, 0.95], vertical_alignment="top")
 
     with left:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("Upload image")
-        uploaded = st.file_uploader("Drop here or browse", type=["jpg", "jpeg", "png"])
-        st.caption("Tip: Clear fish image দিলে accuracy ভালো হয়।")
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.subheader("Upload image")
+            uploaded = st.file_uploader("Drop here or browse", type=["jpg", "jpeg", "png"])
+            st.caption("Tip: Clear fish image দিলে accuracy ভালো হয়।")
 
     with right:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("Settings")
-        top_k = st.slider("Top-K", 1, 5, 3)
-        threshold = st.slider("Uncertainty threshold", 0.0, 1.0, 0.70, 0.01)
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.subheader("Settings")
+            top_k = st.slider("Top-K", 1, 5, 3)
+            threshold = st.slider("Uncertainty threshold", 0.0, 1.0, 0.70, 0.01)
 
     if uploaded:
         img = Image.open(uploaded).convert("RGB")
         st.image(img, caption=f"Uploaded: {uploaded.name}", use_container_width=True)
 
         colA, colB = st.columns([0.6, 0.4])
-        with colA:
-            run = st.button("Predict", type="primary", use_container_width=True)
-        with colB:
-            save_btn = st.button("Save to History", use_container_width=True)
+        run = colA.button("Predict", type="primary", use_container_width=True)
+        save_btn = colB.button("Save to History", use_container_width=True)
 
         if run:
             preds = predict_topk(img, k=top_k)
@@ -179,35 +167,21 @@ with tab_predict:
                 save_record(rec)
                 st.success("Saved ✅ এখন **📜 History** tab এ দেখো।")
     else:
-        st.markdown('<div class="small">No image uploaded yet.</div>', unsafe_allow_html=True)
+        st.caption("No image uploaded yet.")
 
 with tab_history:
     data = load_db()
     if not data:
-        st.info("No saved predictions yet. Upload & Predict করে Save করো।")
+        st.info("No saved predictions yet.")
     else:
         st.subheader("Saved predictions")
         for item in data[:50]:
             st.markdown(f"### {item.get('best_label','-')} — {item.get('best_conf',0)*100:.2f}%")
             st.write(f"**File:** {item.get('filename','-')}")
-            topk = item.get("topk", [])
-            if topk:
-                for t in topk:
-                    st.write(f"- {t['label']} — {t['prob']*100:.2f}%")
+            for t in item.get("topk", []):
+                st.write(f"- {t['label']} — {t['prob']*100:.2f}%")
             st.divider()
-
-        if st.button("Delete history (local)"):
-            try:
-                os.remove(DB_PATH)
-                st.success("History deleted ✅")
-            except Exception as e:
-                st.error(f"Could not delete: {e}")
 
 with tab_versions:
     st.subheader("Versions / Changelog")
-    st.markdown("""
-- **v1.0.0**
-  - Top bar UI + Tabs navigation
-  - HuggingFace full model auto-download
-  - Upload → Predict → Save → History
-""")
+    st.markdown("- **v1.0.0** — Tabs UI + HF auto-download + Save History")
