@@ -9,7 +9,7 @@ from torchvision import models, transforms
 st.set_page_config(page_title="Fish Species Classifier", page_icon="🐟", layout="centered")
 
 MODEL_PATH = "fish_resnet50_pretrained_ft.pth"
-MODEL_URL = "https://huggingface.co/riad300/fish-resnet50-weights/resolve/main/fish_resnet50_pretrained_ft.pth"
+MODEL_URL = "https://huggingface.co/riad300/fish-resnet50-weights/resolve/main/fish_classifier_resnet50_ft.pth"
 
 def download_model_if_needed():
     if os.path.exists(MODEL_PATH):
