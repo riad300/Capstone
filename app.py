@@ -11,6 +11,7 @@ st.set_page_config(page_title="Fish Species AI", page_icon="🐟", layout="wide"
 MODEL_PATH = "fish_full_resnet50_classifier.pth"
 MODEL_URL  = "https://huggingface.co/riad300/fish-resnet50-weights/resolve/main/fish_full_resnet50_classifier.pth"
 DB_PATH = "saved_predictions.json"
+CACHE_BUSTER = "v1"  # change to v2/v3 if you need force reload
 
 st.markdown("""
 <style>
@@ -21,8 +22,6 @@ st.markdown("""
 .brand {display:flex; align-items:center; gap:12px;}
 .brand h2 {margin:0; font-size: 24px; letter-spacing:-0.4px;}
 .brand span {opacity:0.75; font-size: 13px;}
-.card {padding: 18px; border-radius: 18px; background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);}
 .small {opacity:0.78}
 </style>
 """, unsafe_allow_html=True)
@@ -36,7 +35,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ---------- DB ----------
 def load_db():
     if not os.path.exists(DB_PATH):
         return []
@@ -52,20 +50,16 @@ def save_record(record):
     with open(DB_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ---------- Model download ----------
 def download_model_if_needed():
     if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) > 10_000_000:
         return
     st.info("Downloading model (first run only)...")
-    try:
-        urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
-        st.success("Model downloaded ✅")
-    except Exception as e:
-        st.error(f"Model download failed: {e}")
-        st.stop()
+    urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+    st.success("Model downloaded ✅")
 
 @st.cache_resource
 def load_model():
+    _ = CACHE_BUSTER
     download_model_if_needed()
     ckpt = torch.load(MODEL_PATH, map_location="cpu")
     class_names = ckpt["class_names"]
@@ -97,36 +91,29 @@ def predict_topk(pil_img, k=3):
     with torch.no_grad():
         logits = model(x)[0]
         probs = torch.softmax(logits, dim=0)
-
     top_probs, top_idx = torch.topk(probs, k=min(k, probs.numel()))
     return [(class_names[i], float(p)) for p, i in zip(top_probs.tolist(), top_idx.tolist())]
 
-# ---------- UI ----------
 tab_home, tab_predict, tab_history, tab_versions = st.tabs(
     ["🏠 Home", "📤 Upload & Predict", "📜 History", "🧾 Versions"]
 )
 
 with tab_home:
-    with st.container(border=True):
-        st.subheader("What this website does")
-        st.write("Upload a fish image and the model predicts the species with confidence.")
-        st.write("You can also save predictions and view them in History.")
+    st.subheader("What this website does")
+    st.write("Upload a fish image and the model predicts the species with confidence.")
     st.info("Go to **📤 Upload & Predict** tab.")
 
 with tab_predict:
     left, right = st.columns([1.05, 0.95], vertical_alignment="top")
 
     with left:
-        with st.container(border=True):
-            st.subheader("Upload image")
-            uploaded = st.file_uploader("Drop here or browse", type=["jpg", "jpeg", "png"])
-            st.caption("Tip: Clear fish image দিলে accuracy ভালো হয়।")
+        st.subheader("Upload image")
+        uploaded = st.file_uploader("Drop here or browse", type=["jpg", "jpeg", "png"])
 
     with right:
-        with st.container(border=True):
-            st.subheader("Settings")
-            top_k = st.slider("Top-K", 1, 5, 3)
-            threshold = st.slider("Uncertainty threshold", 0.0, 1.0, 0.70, 0.01)
+        st.subheader("Settings")
+        top_k = st.slider("Top-K", 1, 5, 3)
+        threshold = st.slider("Uncertainty threshold", 0.0, 1.0, 0.70, 0.01)
 
     if uploaded:
         img = Image.open(uploaded).convert("RGB")
@@ -141,7 +128,7 @@ with tab_predict:
             best_label, best_conf = preds[0]
 
             if best_conf < threshold:
-                st.warning("Uncertain result — try clearer image / different angle.")
+                st.warning("Uncertain result — try clearer image.")
 
             st.success(f"Prediction: {best_label}")
             st.progress(int(best_conf * 100))
@@ -165,7 +152,7 @@ with tab_predict:
                 st.warning("আগে Predict চালাও, তারপর Save করো।")
             else:
                 save_record(rec)
-                st.success("Saved ✅ এখন **📜 History** tab এ দেখো।")
+                st.success("Saved ✅ Now check 📜 History tab.")
     else:
         st.caption("No image uploaded yet.")
 
@@ -174,14 +161,10 @@ with tab_history:
     if not data:
         st.info("No saved predictions yet.")
     else:
-        st.subheader("Saved predictions")
         for item in data[:50]:
             st.markdown(f"### {item.get('best_label','-')} — {item.get('best_conf',0)*100:.2f}%")
             st.write(f"**File:** {item.get('filename','-')}")
-            for t in item.get("topk", []):
-                st.write(f"- {t['label']} — {t['prob']*100:.2f}%")
             st.divider()
 
 with tab_versions:
-    st.subheader("Versions / Changelog")
-    st.markdown("- **v1.0.0** — Tabs UI + HF auto-download + Save History")
+    st.markdown("- **v1.1 (AI)** — PyTorch inference + HF model download")
