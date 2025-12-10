@@ -53,7 +53,6 @@ def _unwrap_checkpoint(ckpt):
         if "model" in ckpt and isinstance(ckpt["model"], dict):
             return ckpt["model"], class_names
 
-        # if it looks like state_dict
         if any(k.startswith(("conv1.", "layer1.", "fc.", "module.")) for k in ckpt.keys()):
             return ckpt, class_names
 
@@ -75,6 +74,7 @@ def load_artifacts():
     state, class_names = _unwrap_checkpoint(ckpt)
     state = _strip_module_prefix(state)
 
+    # fallback class names (if not in checkpoint)
     if not class_names:
         n = None
         if isinstance(state, dict) and "fc.weight" in state:
@@ -87,9 +87,9 @@ def load_artifacts():
     missing, unexpected = model.load_state_dict(state, strict=False)
     model.eval()
 
-    # ✅ FIX-1: training mismatch এ crop issue কমাতে Resize((224,224))
+    # ✅ safer transform: avoid fish cut by center crop
     tfm = transforms.Compose([
-        transforms.Resize((224, 224)),   # ✅ CenterCrop বাদ
+        transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225]),
@@ -101,19 +101,17 @@ def load_artifacts():
         "unexpected_keys_count": len(unexpected),
         "missing_keys_sample": missing[:10],
         "unexpected_keys_sample": unexpected[:10],
-        "class_names_sample": class_names[:20],
+        "class_names_sample": class_names[:30],
     }
     return model, class_names, tfm, debug
 
-def predict_topk(pil_img: Image.Image, k: int = 3, temperature: float = 2.0):
+def predict_topk(pil_img: Image.Image, k: int, temperature: float):
     model, class_names, tfm, _ = load_artifacts()
-
     x = tfm(pil_img).unsqueeze(0)
+
     with torch.no_grad():
         logits = model(x)[0]
-
-        # ✅ FIX-2: temperature softmax (confidence over 99% কমাতে সাহায্য করে)
-        probs = torch.softmax(logits / temperature, dim=0)
+        probs = torch.softmax(logits / max(temperature, 1e-6), dim=0)  # ✅ temp softmax
 
     top_probs, top_idx = torch.topk(probs, k=min(k, probs.numel()))
     preds = [(class_names[i], float(p)) for p, i in zip(top_probs.tolist(), top_idx.tolist())]
@@ -121,12 +119,15 @@ def predict_topk(pil_img: Image.Image, k: int = 3, temperature: float = 2.0):
 
 # ====== UI ======
 colL, colR = st.columns([1.1, 0.9], vertical_alignment="top")
+
 with colL:
     uploaded = st.file_uploader("Upload fish image (JPG/PNG)", type=["jpg", "jpeg", "png"])
+
 with colR:
     top_k = st.slider("Top-K", 1, 5, 3)
-    threshold = st.slider("Uncertainty threshold", 0.0, 1.0, 0.70, 0.01)
-    temperature = st.slider("Softmax temperature (reduce overconfidence)", 1.0, 5.0, 2.0, 0.1)
+    threshold = st.slider("Min confidence threshold", 0.0, 1.0, 0.70, 0.01)
+    gap_thr = st.slider("Top1-Top2 gap threshold", 0.00, 0.50, 0.10, 0.01)
+    temperature = st.slider("Softmax temperature (reduce 99% confidence)", 1.0, 5.0, 2.5, 0.1)
     show_debug = st.checkbox("Debug")
 
 if uploaded:
@@ -139,12 +140,19 @@ if uploaded:
 
     if run:
         preds = predict_topk(img, k=top_k, temperature=temperature)
+
         best_label, best_conf = preds[0]
         second_conf = preds[1][1] if len(preds) > 1 else 0.0
+        gap = best_conf - second_conf
 
-        # ✅ FIX-3: uncertain rule (wrong হলে reject)
-        if best_conf < threshold or (best_conf - second_conf) < 0.10:
-            st.warning("Uncertain prediction — please upload a clearer fish image (full fish visible).")
+        # ✅ Step-4 Reject/Uncertainty logic
+        is_uncertain = (best_conf < threshold) or (gap < gap_thr)
+
+        if is_uncertain:
+            st.warning(
+                f"Uncertain / unclear image. Try another photo. "
+                f"(best={best_conf*100:.1f}%, gap={gap*100:.1f}%)"
+            )
 
         st.success(f"Prediction: {best_label}")
         st.info(f"Confidence: {best_conf*100:.2f}%")
@@ -161,6 +169,8 @@ if uploaded:
             "best_conf": best_conf,
             "topk": [{"label": l, "prob": p} for l, p in preds],
             "temperature": temperature,
+            "threshold": threshold,
+            "gap_thr": gap_thr,
         }
 
     if save_btn:
@@ -175,5 +185,6 @@ if uploaded:
         _, _, _, dbg = load_artifacts()
         st.subheader("Debug info")
         st.json(dbg)
+
 else:
     st.caption("Upload an image to start.")
