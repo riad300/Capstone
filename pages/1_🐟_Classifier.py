@@ -39,37 +39,24 @@ def download_model_if_needed():
     st.success("Model downloaded ✅")
 
 def _unwrap_checkpoint(ckpt):
-    """
-    Supports:
-    - ckpt = {"model_state": ..., "class_names": ...}
-    - ckpt = {"state_dict": ...}
-    - ckpt = pure state_dict
-    - ckpt = {"model": state_dict, "classes": ...} (best-effort)
-    """
     class_names = None
-
     if isinstance(ckpt, dict):
-        # common fields
         if "class_names" in ckpt and isinstance(ckpt["class_names"], (list, tuple)):
             class_names = list(ckpt["class_names"])
 
         if "model_state" in ckpt and isinstance(ckpt["model_state"], dict):
-            state = ckpt["model_state"]
-            return state, class_names
+            return ckpt["model_state"], class_names
 
         if "state_dict" in ckpt and isinstance(ckpt["state_dict"], dict):
-            state = ckpt["state_dict"]
-            return state, class_names
+            return ckpt["state_dict"], class_names
 
         if "model" in ckpt and isinstance(ckpt["model"], dict):
-            state = ckpt["model"]
-            return state, class_names
+            return ckpt["model"], class_names
 
-        # if it looks like a state_dict already
+        # if it looks like state_dict
         if any(k.startswith(("conv1.", "layer1.", "fc.", "module.")) for k in ckpt.keys()):
             return ckpt, class_names
 
-    # fallback: assume it's a state_dict
     return ckpt, class_names
 
 def _strip_module_prefix(state):
@@ -88,46 +75,45 @@ def load_artifacts():
     state, class_names = _unwrap_checkpoint(ckpt)
     state = _strip_module_prefix(state)
 
-    # If class_names not found, create placeholders (won't crash)
     if not class_names:
-        # try infer num_classes from fc.weight shape
         n = None
         if isinstance(state, dict) and "fc.weight" in state:
             n = state["fc.weight"].shape[0]
         class_names = [f"class_{i}" for i in range(n or 1)]
 
-    # Build model (ResNet50 classifier)
     model = models.resnet50(weights=None)
     model.fc = nn.Linear(model.fc.in_features, len(class_names))
 
-    # IMPORTANT: strict=False so it doesn't crash on small mismatches
     missing, unexpected = model.load_state_dict(state, strict=False)
+    model.eval()
 
+    # ✅ FIX-1: training mismatch এ crop issue কমাতে Resize((224,224))
     tfm = transforms.Compose([
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
+        transforms.Resize((224, 224)),   # ✅ CenterCrop বাদ
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225]),
     ])
 
-    model.eval()
     debug = {
         "num_classes": len(class_names),
         "missing_keys_count": len(missing),
         "unexpected_keys_count": len(unexpected),
         "missing_keys_sample": missing[:10],
         "unexpected_keys_sample": unexpected[:10],
+        "class_names_sample": class_names[:20],
     }
     return model, class_names, tfm, debug
 
-def predict_topk(pil_img: Image.Image, k: int = 3):
+def predict_topk(pil_img: Image.Image, k: int = 3, temperature: float = 2.0):
     model, class_names, tfm, _ = load_artifacts()
-    x = tfm(pil_img).unsqueeze(0)
 
+    x = tfm(pil_img).unsqueeze(0)
     with torch.no_grad():
         logits = model(x)[0]
-        probs = torch.softmax(logits, dim=0)
+
+        # ✅ FIX-2: temperature softmax (confidence over 99% কমাতে সাহায্য করে)
+        probs = torch.softmax(logits / temperature, dim=0)
 
     top_probs, top_idx = torch.topk(probs, k=min(k, probs.numel()))
     preds = [(class_names[i], float(p)) for p, i in zip(top_probs.tolist(), top_idx.tolist())]
@@ -140,23 +126,25 @@ with colL:
 with colR:
     top_k = st.slider("Top-K", 1, 5, 3)
     threshold = st.slider("Uncertainty threshold", 0.0, 1.0, 0.70, 0.01)
-    st.caption("Tip: low confidence হলে uncertain দেখাবে।")
+    temperature = st.slider("Softmax temperature (reduce overconfidence)", 1.0, 5.0, 2.0, 0.1)
+    show_debug = st.checkbox("Debug")
 
 if uploaded:
     img = Image.open(uploaded).convert("RGB")
     st.image(img, caption="Uploaded image", use_column_width=True)
 
-    colA, colB, colC = st.columns([0.5, 0.3, 0.2])
+    colA, colB = st.columns([0.6, 0.4])
     run = colA.button("Predict", type="primary", use_container_width=True)
     save_btn = colB.button("Save to History", use_container_width=True)
-    show_debug = colC.checkbox("Debug")
 
     if run:
-        preds = predict_topk(img, k=top_k)
+        preds = predict_topk(img, k=top_k, temperature=temperature)
         best_label, best_conf = preds[0]
+        second_conf = preds[1][1] if len(preds) > 1 else 0.0
 
-        if best_conf < threshold:
-            st.warning("Uncertain result — try clearer image / different angle.")
+        # ✅ FIX-3: uncertain rule (wrong হলে reject)
+        if best_conf < threshold or (best_conf - second_conf) < 0.10:
+            st.warning("Uncertain prediction — please upload a clearer fish image (full fish visible).")
 
         st.success(f"Prediction: {best_label}")
         st.info(f"Confidence: {best_conf*100:.2f}%")
@@ -172,6 +160,7 @@ if uploaded:
             "best_label": best_label,
             "best_conf": best_conf,
             "topk": [{"label": l, "prob": p} for l, p in preds],
+            "temperature": temperature,
         }
 
     if save_btn:
@@ -184,7 +173,7 @@ if uploaded:
 
     if show_debug:
         _, _, _, dbg = load_artifacts()
-        st.subheader("Debug info (load_state_dict)")
+        st.subheader("Debug info")
         st.json(dbg)
 else:
     st.caption("Upload an image to start.")
