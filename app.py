@@ -4,24 +4,23 @@ import streamlit as st
 from PIL import Image
 
 st.set_page_config(page_title="Fish Species AI", page_icon="🐟", layout="wide")
-
 DB_PATH = "saved_predictions.json"
 
-# ---------- UI styles ----------
+# ---------- styles ----------
 st.markdown("""
 <style>
 .block-container {max-width: 1180px; padding-top: 1.2rem;}
 .topbar {position: sticky; top: 0; z-index: 999; padding: 14px 18px; border-radius: 18px;
-  background: rgba(17,24,39,0.80); border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(17,24,39,0.85); border: 1px solid rgba(255,255,255,0.08);
   backdrop-filter: blur(10px); margin-bottom: 18px;}
 .brand {display:flex; align-items:center; gap:12px;}
 .brand h2 {margin:0; font-size: 24px; letter-spacing:-0.4px;}
 .brand span {opacity:0.75; font-size: 13px;}
 .card {padding: 18px; border-radius: 18px; background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.08);}
-.small {opacity:0.78}
 .badge {display:inline-block; padding: 4px 10px; border-radius: 999px;
   background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.35); font-size: 12px;}
+.small {opacity:0.78}
 </style>
 """, unsafe_allow_html=True)
 
@@ -29,12 +28,12 @@ st.markdown("""
 <div class="topbar">
   <div class="brand">
     <h2>🐟 Fish Species AI</h2>
-    <span>Upload → Predict → Save (Presentation-safe demo)</span>
+    <span>Upload → Predict → Save (Presentation Ready)</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ---------- DB helpers ----------
+# ---------- DB ----------
 def load_db():
     if not os.path.exists(DB_PATH):
         return []
@@ -50,16 +49,14 @@ def save_record(record):
     with open(DB_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ---------- Demo classes (replace later with real model classes) ----------
+# ---------- Demo classes ----------
 CLASS_NAMES = [
     "Hilsha (Ilish)", "Rui", "Katla", "Pangash", "Tilapia",
     "Silver Carp", "Mrigel", "Bata", "Koi", "Shing"
 ]
 
 def demo_predict(image_bytes: bytes, top_k: int = 3):
-    """
-    Deterministic demo prediction (no AI). Same image -> same output.
-    """
+    # Deterministic: same image -> same output
     h = hashlib.sha256(image_bytes).hexdigest()
     seed = int(h[:8], 16)
     rng = np.random.default_rng(seed)
@@ -71,52 +68,48 @@ def demo_predict(image_bytes: bytes, top_k: int = 3):
     idx = np.argsort(-probs)[:top_k]
     return [(CLASS_NAMES[i], float(probs[i])) for i in idx]
 
-# ---------- Tabs ----------
+# ---------- tabs ----------
 tab_home, tab_predict, tab_history, tab_versions = st.tabs(
     ["🏠 Home", "📤 Upload & Predict", "📜 History", "🧾 Versions"]
 )
 
 with tab_home:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("What this website does")
-    st.write("This is a professional demo web app for Fish Species classification.")
-    st.write("For presentation reliability, it runs in **Demo mode** (no heavy AI dependencies).")
-    st.markdown('<span class="badge">Demo Mode: Stable</span>', unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.info("Go to **📤 Upload & Predict** tab to upload an image and run prediction flow.")
+    with st.container(border=True):
+        st.subheader("What this website does")
+        st.write("Upload a fish image and get a predicted species with confidence.")
+        st.write("You can save results and view them later in History.")
+        st.markdown('<span class="badge">Stable Demo Mode</span>', unsafe_allow_html=True)
+    st.info("Go to **📤 Upload & Predict** tab to test upload & prediction flow.")
 
 with tab_predict:
     left, right = st.columns([1.05, 0.95], vertical_alignment="top")
 
     with left:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("Upload image")
-        uploaded = st.file_uploader("Drop here or browse (JPG/PNG)", type=["jpg", "jpeg", "png"])
-        st.caption("Tip: Clear fish image দিলে demo output consistent থাকবে.")
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.subheader("Upload image")
+            uploaded = st.file_uploader("Drop here or browse (JPG/PNG)", type=["jpg", "jpeg", "png"])
+            st.caption("Tip: Clear fish image দিলে output consistent থাকবে।")
 
     with right:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("Settings")
-        top_k = st.slider("Top-K", 1, 5, 3)
-        threshold = st.slider("Uncertainty threshold", 0.0, 1.0, 0.70, 0.01)
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.subheader("Settings")
+            top_k = st.slider("Top-K", 1, 5, 3)
+            threshold = st.slider("Uncertainty threshold", 0.0, 1.0, 0.70, 0.01)
 
     if uploaded:
         img = Image.open(uploaded).convert("RGB")
-        st.image(img, caption=f"Uploaded: {uploaded.name}", use_container_width=True)
+        st.image(img, caption=f"Uploaded: {uploaded.name}", use_column_width=True)  # ✅ fixed
 
         colA, colB = st.columns([0.6, 0.4])
         run = colA.button("Predict", type="primary", use_container_width=True)
         save_btn = colB.button("Save to History", use_container_width=True)
 
         if run:
-            image_bytes = uploaded.getvalue()
-            preds = demo_predict(image_bytes, top_k=top_k)
+            preds = demo_predict(uploaded.getvalue(), top_k=top_k)
             best_label, best_conf = preds[0]
 
             if best_conf < threshold:
-                st.warning("Uncertain result — (Demo mode) try another image.")
+                st.warning("Uncertain result — try another image (Demo mode).")
 
             st.success(f"Prediction: {best_label}")
             st.progress(int(best_conf * 100))
@@ -152,11 +145,8 @@ with tab_history:
     else:
         st.subheader("Saved predictions")
         for item in data[:50]:
-            mode = item.get("mode", "DEMO")
-            st.markdown(f"### {item.get('best_label','-')} — {item.get('best_conf',0)*100:.2f}%  ({mode})")
-            st.write(f"**File:** {item.get('filename','-')}")
-            for t in item.get("topk", []):
-                st.write(f"- {t['label']} — {t['prob']*100:.2f}%")
+            st.markdown(f"### {item.get('best_label','-')} — {item.get('best_conf',0)*100:.2f}%")
+            st.write(f"**File:** {item.get('filename','-')}  |  **Mode:** {item.get('mode','DEMO')}")
             st.divider()
 
         if st.button("Delete history (local)"):
@@ -169,11 +159,11 @@ with tab_history:
 with tab_versions:
     st.subheader("Versions / Changelog")
     st.markdown("""
-- **v1.0 (Presentation-safe)**  
-  - Top bar + Tabs navigation  
+- **v1.0 (Presentation Ready)**  
+  - Professional UI: Top bar + Tabs  
   - Upload → Predict → Save → History  
-  - Demo-mode prediction (no heavy dependencies)
+  - Stable demo prediction (no torch dependency)
 
 - **v1.1 (After presentation)**  
-  - Enable real AI inference (PyTorch + your trained weights)
+  - Enable real AI inference with your HuggingFace model weights
 """)
