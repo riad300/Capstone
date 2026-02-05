@@ -7,7 +7,7 @@ import torch.nn as nn
 from torchvision import models, transforms
 
 # ====== CONFIG ======
-MODEL_URL  = "https://huggingface.co/riad300/fish-resnet50-weights/resolve/main/fish_full_resnet50_classifier.pth"
+MODEL_URL  = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/classifier_final.pt"
 MODEL_PATH = "fish_full_resnet50_classifier.pth"
 DB_PATH = "saved_predictions.json"
 
